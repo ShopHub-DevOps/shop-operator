@@ -25,7 +25,7 @@ var (
 
 func TestMain(m *testing.M) {
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
-		log.Println("KUBEBUILDER_ASSETS is not set; run 'make test' (or 'make setup-envtest' first) so envtest binaries are available")
+		log.Println("KUBEBUILDER_ASSETS is not set; run 'make test' so envtest binaries are downloaded")
 		os.Exit(1)
 	}
 
