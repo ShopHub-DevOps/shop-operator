@@ -25,6 +25,13 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o ma
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 FROM gcr.io/distroless/static:nonroot
 WORKDIR /
+
+# OCI image labels for registry discoverability and lineage tracking.
+LABEL org.opencontainers.image.title="shop-operator"
+LABEL org.opencontainers.image.description="Kubernetes operator that reconciles Shop, DiscordChannel, and Wallet custom resources for the ShopHub platform"
+LABEL org.opencontainers.image.source="https://github.com/ShopHub-DevOps/shop-operator"
+LABEL org.opencontainers.image.licenses="MIT"
+
 COPY --from=builder /workspace/manager .
 USER 65532:65532
 
