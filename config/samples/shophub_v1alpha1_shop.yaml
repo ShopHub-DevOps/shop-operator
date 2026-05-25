@@ -1,0 +1,15 @@
+apiVersion: shophub.io/v1alpha1
+kind: Shop
+metadata:
+  name: demo-store
+  namespace: default
+  labels:
+    app.kubernetes.io/name: shop
+    app.kubernetes.io/instance: demo-store
+spec:
+  displayName: "Demo Store"
+  host: demo-store.shophub.local
+  availability: standard
+  databaseTier: standard
+  walletAddress: "0xabcdef1234567890abcdef1234567890abcdef12"
+  chainId: 11155111
