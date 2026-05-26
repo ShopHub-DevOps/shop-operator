@@ -47,6 +47,7 @@ rules:
   resources:
   - discordchannels
   - shops
+  - wallets
   verbs:
   - create
   - delete
@@ -60,6 +61,7 @@ rules:
   resources:
   - discordchannels/finalizers
   - shops/finalizers
+  - wallets/finalizers
   verbs:
   - update
 - apiGroups:
@@ -67,6 +69,7 @@ rules:
   resources:
   - discordchannels/status
   - shops/status
+  - wallets/status
   verbs:
   - get
   - patch

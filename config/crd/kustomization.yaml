@@ -6,3 +6,4 @@ kind: Kustomization
 resources:
   - bases/shophub.io_shops.yaml
   - bases/shophub.io_discordchannels.yaml
+  - bases/shophub.io_wallets.yaml
