@@ -169,6 +169,13 @@ func main() {
 		setupLog.Error(err, "Failed to set up controller", "controller", "Shop")
 		os.Exit(1)
 	}
+	if err := (&controller.DiscordChannelReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to set up controller", "controller", "DiscordChannel")
+		os.Exit(1)
+	}
 	// +kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

@@ -45,6 +45,7 @@ rules:
 - apiGroups:
   - shophub.io
   resources:
+  - discordchannels
   - shops
   verbs:
   - create
@@ -57,12 +58,14 @@ rules:
 - apiGroups:
   - shophub.io
   resources:
+  - discordchannels/finalizers
   - shops/finalizers
   verbs:
   - update
 - apiGroups:
   - shophub.io
   resources:
+  - discordchannels/status
   - shops/status
   verbs:
   - get
