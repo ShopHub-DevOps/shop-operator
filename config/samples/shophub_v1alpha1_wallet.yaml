@@ -1,0 +1,14 @@
+apiVersion: shophub.io/v1alpha1
+kind: Wallet
+metadata:
+  name: demo-payments
+  namespace: default
+  labels:
+    app.kubernetes.io/name: wallet
+    app.kubernetes.io/instance: demo-payments
+spec:
+  displayName: "Demo store payments wallet"
+  address: "0xabcdef1234567890abcdef1234567890abcdef12"
+  chainId: 11155111
+  purpose: payments
+  ownerRef: "demo-user@example.com"
