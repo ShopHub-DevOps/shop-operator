@@ -1,6 +1,8 @@
 package resources
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
@@ -24,14 +26,13 @@ func BuildConfigMap(s *shophubv1alpha1.Shop) *corev1.ConfigMap {
 			"SHOP_DB_TIER":      string(s.Spec.DatabaseTier),
 			"WALLET_ADDRESS":    s.Spec.WalletAddress,
 			"CHAIN_ID":          strconv.FormatInt(s.Spec.ChainID, 10),
+
+			"NEXT_PUBLIC_API_URL": "/api",
 		},
 	}
 }
 
-// BuildSecret holds placeholders for sensitive values (JWT signing key,
-// database password). The actual contents are populated by separate
-// reconcilers - this builder establishes the resource shape so envFrom
-// references are stable across reconciles.
+// BuildSecret holds sensitive values (JWT signing key, database password).
 func BuildSecret(s *shophubv1alpha1.Shop) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -40,9 +41,19 @@ func BuildSecret(s *shophubv1alpha1.Shop) *corev1.Secret {
 			Labels:    CommonLabels(s.Name),
 		},
 		Type: corev1.SecretTypeOpaque,
-		Data: map[string][]byte{
-			"JWT_SECRET":  []byte(""),
-			"DB_PASSWORD": []byte(""),
+		StringData: map[string]string{
+			"JWT_SECRET":  generateRandomJWTKey(),
+			"DB_PASSWORD": "", // CNPG base uses its own secret for db connection.
 		},
 	}
+}
+
+// generateRandomJWTKey generates random 32byte key - encrypts to Base64.
+func generateRandomJWTKey() string {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		// fallback if error in rand generator
+		return "fallback-super-secure-key-change-me-in-production"
+	}
+	return base64.StdEncoding.EncodeToString(bytes)
 }

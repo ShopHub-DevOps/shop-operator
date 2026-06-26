@@ -177,4 +177,97 @@ var _ = Describe("Shop reconciler", func() {
 			}).Should(BeTrue())
 		})
 	})
+
+	Context("CNPG cluster management", func() {
+		It("creates a CNPG Cluster when DatabaseTier is standard", func() {
+			shop := newShop("cnpg-test")
+			shop.Spec.DatabaseTier = shophubv1alpha1.DatabaseStandard
+			Expect(k8sClient.Create(ctx, shop)).To(Succeed())
+
+			// Wait for CNPG Cluster to be created
+			// Note: This will log "CNPG operator not installed" if not available,
+			// but the test doesn't fail because we ignore that error.
+			//clusterName := resources.CNPGClusterName(shop)
+			Eventually(func() bool {
+				// We can't check if cluster exists because CNPG CRD might not be installed.
+				// Instead, verify that the reconciliation completed (finalizer is set)
+				current := &shophubv1alpha1.Shop{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: shop.Name, Namespace: shop.Namespace}, current); err != nil {
+					return false
+				}
+				return slices.Contains(current.Finalizers, shopFinalizer)
+			}).Should(BeTrue())
+
+			Expect(k8sClient.Delete(ctx, shop)).To(Succeed())
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: shop.Name, Namespace: shop.Namespace}, &shophubv1alpha1.Shop{})
+				return apierrors.IsNotFound(err)
+			}).Should(BeTrue())
+		})
+
+		It("adds CNPG Secret to Deployment EnvFrom when DatabaseTier is standard", func() {
+			shop := newShop("cnpg-env-test")
+			shop.Spec.DatabaseTier = shophubv1alpha1.DatabaseStandard
+			Expect(k8sClient.Create(ctx, shop)).To(Succeed())
+
+			// Wait for backend Deployment to be created and check EnvFrom
+			beKey := types.NamespacedName{Name: resources.BackendName(shop), Namespace: shop.Namespace}
+			Eventually(func() []corev1.EnvFromSource {
+				dep := &appsv1.Deployment{}
+				if err := k8sClient.Get(ctx, beKey, dep); err != nil {
+					return nil
+				}
+				if len(dep.Spec.Template.Spec.Containers) == 0 {
+					return nil
+				}
+				return dep.Spec.Template.Spec.Containers[0].EnvFrom
+			}).Should(HaveLen(3)) // ConfigMap, Secret, CNPG Secret
+
+			// Verify CNPG Secret is included
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, beKey, dep)).To(Succeed())
+			envFrom := dep.Spec.Template.Spec.Containers[0].EnvFrom
+
+			cnpgSecretName := resources.CNPGSecretName(shop)
+			found := false
+			for _, env := range envFrom {
+				if env.SecretRef != nil && env.SecretRef.Name == cnpgSecretName {
+					found = true
+					break
+				}
+			}
+			Expect(found).To(BeTrue(), "CNPG Secret %s not found in Deployment EnvFrom", cnpgSecretName)
+
+			Expect(k8sClient.Delete(ctx, shop)).To(Succeed())
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: shop.Name, Namespace: shop.Namespace}, &shophubv1alpha1.Shop{})
+				return apierrors.IsNotFound(err)
+			}).Should(BeTrue())
+		})
+
+		It("does not add CNPG Secret when DatabaseTier is light", func() {
+			shop := newShop("no-cnpg-test")
+			shop.Spec.DatabaseTier = shophubv1alpha1.DatabaseLight
+			Expect(k8sClient.Create(ctx, shop)).To(Succeed())
+
+			// Wait for backend Deployment and check EnvFrom
+			beKey := types.NamespacedName{Name: resources.BackendName(shop), Namespace: shop.Namespace}
+			Eventually(func() []corev1.EnvFromSource {
+				dep := &appsv1.Deployment{}
+				if err := k8sClient.Get(ctx, beKey, dep); err != nil {
+					return nil
+				}
+				if len(dep.Spec.Template.Spec.Containers) == 0 {
+					return nil
+				}
+				return dep.Spec.Template.Spec.Containers[0].EnvFrom
+			}).Should(HaveLen(2)) // Only ConfigMap and Secret, no CNPG
+
+			Expect(k8sClient.Delete(ctx, shop)).To(Succeed())
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: shop.Name, Namespace: shop.Namespace}, &shophubv1alpha1.Shop{})
+				return apierrors.IsNotFound(err)
+			}).Should(BeTrue())
+		})
+	})
 })

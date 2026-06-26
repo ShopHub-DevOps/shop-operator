@@ -13,17 +13,65 @@ import (
 // BuildBackendDeployment composes the backend Deployment for a Shop. The caller
 // is responsible for setting controller ownership before applying.
 func BuildBackendDeployment(s *shophubv1alpha1.Shop) *appsv1.Deployment {
-	return buildDeployment(s, BackendName(s), ComponentBackend, BackendImage(s))
+	var extraEnv []corev1.EnvVar
+
+	// If standard tier (CNPG), map 'uri' to 'DATABASE_URL' that NestJS expects.
+	if s.Spec.DatabaseTier == shophubv1alpha1.DatabaseStandard {
+		extraEnv = append(extraEnv, corev1.EnvVar{
+			Name: "DATABASE_URL",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: CNPGSecretName(s),
+					},
+					Key: "uri", // CNPG generates string in field 'uri'
+				},
+			},
+		})
+	}
+
+	// To backend send "/health" - health check.
+	return buildDeployment(s, BackendName(s), ComponentBackend, BackendImage(s), "/health", extraEnv)
 }
 
 // BuildFrontendDeployment composes the frontend Deployment for a Shop.
 func BuildFrontendDeployment(s *shophubv1alpha1.Shop) *appsv1.Deployment {
-	return buildDeployment(s, FrontendName(s), ComponentFrontend, FrontendImage(s))
+	// To frontend send "/" as health check.
+	return buildDeployment(s, FrontendName(s), ComponentFrontend, FrontendImage(s), "/", nil)
 }
 
-func buildDeployment(s *shophubv1alpha1.Shop, name, component, image string) *appsv1.Deployment {
+func buildDeployment(s *shophubv1alpha1.Shop, name, component, image, healthPath string, extraEnv []corev1.EnvVar) *appsv1.Deployment {
 	labels := ComponentLabels(s.Name, component)
 	replicas := Replicas(s)
+
+	// Build EnvFrom sources
+	envFrom := []corev1.EnvFromSource{
+		{ConfigMapRef: &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: ConfigMapName(s)}}},
+		{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: SecretName(s)}}},
+	}
+
+	// Add CNPG Secret if databaseTier is standard
+	if s.Spec.DatabaseTier == shophubv1alpha1.DatabaseStandard {
+		envFrom = append(envFrom, corev1.EnvFromSource{
+			SecretRef: &corev1.SecretEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: CNPGSecretName(s),
+				},
+			},
+		})
+	}
+
+	var initContainers []corev1.Container
+	if component == ComponentBackend {
+		initContainers = []corev1.Container{{
+			Name:  "run-migrations",
+			Image: image,
+			//
+			Command: []string{"npx", "typeorm", "migration:run", "-d", "dist/data-source.js"},
+			EnvFrom: envFrom,
+			Env:     extraEnv,
+		}}
+	}
 
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -37,6 +85,7 @@ func buildDeployment(s *shophubv1alpha1.Shop, name, component, image string) *ap
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
+					InitContainers: initContainers,
 					Containers: []corev1.Container{{
 						Name:  component,
 						Image: image,
@@ -44,14 +93,12 @@ func buildDeployment(s *shophubv1alpha1.Shop, name, component, image string) *ap
 							Name:          "http",
 							ContainerPort: ContainerPort,
 						}},
-						EnvFrom: []corev1.EnvFromSource{
-							{ConfigMapRef: &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: ConfigMapName(s)}}},
-							{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: SecretName(s)}}},
-						},
+						EnvFrom: envFrom,
+						Env:     extraEnv, // Eksplicitly mapped variables (DATABASE_URL for backend)
 						ReadinessProbe: &corev1.Probe{
 							ProbeHandler: corev1.ProbeHandler{
 								HTTPGet: &corev1.HTTPGetAction{
-									Path: "/health",
+									Path: healthPath, // Dinamic /health for BE, / for FE
 									Port: intstr.FromString("http"),
 								},
 							},
