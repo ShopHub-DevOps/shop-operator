@@ -13,8 +13,8 @@ const (
 	ComponentBackend  = "backend"
 	ComponentFrontend = "frontend"
 
-	DefaultBackendImage  = "ghcr.io/shophub-devops/shop-backend:latest"
-	DefaultFrontendImage = "ghcr.io/shophub-devops/shop-frontend:latest"
+	DefaultBackendImage  = "ghcr.io/shophub-devops/shop-backend:local"  //:latest
+	DefaultFrontendImage = "ghcr.io/shophub-devops/shop-frontend:local" //:latest
 
 	ContainerPort int32 = 3000
 )
