@@ -256,9 +256,9 @@ func (r *ShopReconciler) reconcileSecret(ctx context.Context, shop *shophubv1alp
 		if current.Data == nil {
 			current.Data = map[string][]byte{}
 		}
-		for k, v := range desired.Data {
+		for k, v := range desired.StringData {
 			if _, exists := current.Data[k]; !exists {
-				current.Data[k] = v
+				current.Data[k] = []byte(v)
 			}
 		}
 		return controllerutil.SetControllerReference(shop, current, r.Scheme)

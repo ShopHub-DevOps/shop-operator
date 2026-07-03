@@ -65,6 +65,12 @@ spec:
           - --health-probe-bind-address=:8081
         image: controller:latest
         name: manager
+        env:
+          - name: SHARED_JWT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: shophub-shared-secret
+                key: JWT_SECRET
         ports:
         - containerPort: 8081
           name: health

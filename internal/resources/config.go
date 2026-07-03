@@ -3,6 +3,7 @@ package resources
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"os"
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
@@ -28,12 +29,19 @@ func BuildConfigMap(s *shophubv1alpha1.Shop) *corev1.ConfigMap {
 			"CHAIN_ID":          strconv.FormatInt(s.Spec.ChainID, 10),
 
 			"NEXT_PUBLIC_API_URL": "/api",
+
+			"SHOP_OWNER_EMAIL": s.Spec.OwnerEmail,
 		},
 	}
 }
 
 // BuildSecret holds sensitive values (JWT signing key, database password).
 func BuildSecret(s *shophubv1alpha1.Shop) *corev1.Secret {
+	sharedSecret := os.Getenv("SHARED_JWT_SECRET")
+	if sharedSecret == "" {
+		panic("SHARED_JWT_SECRET environment variable is missing or empty")
+	}
+
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      SecretName(s),
@@ -42,7 +50,7 @@ func BuildSecret(s *shophubv1alpha1.Shop) *corev1.Secret {
 		},
 		Type: corev1.SecretTypeOpaque,
 		StringData: map[string]string{
-			"JWT_SECRET":  generateRandomJWTKey(),
+			"JWT_SECRET":  sharedSecret,
 			"DB_PASSWORD": "", // CNPG base uses its own secret for db connection.
 		},
 	}
