@@ -270,4 +270,59 @@ var _ = Describe("Shop reconciler", func() {
 			}).Should(BeTrue())
 		})
 	})
+
+	Context("REDB database management", func() {
+		It("creates a REDB Database when DatabaseTier is light", func() {
+			shop := newShop("redb-test")
+			shop.Spec.DatabaseTier = shophubv1alpha1.DatabaseLight
+			Expect(k8sClient.Create(ctx, shop)).To(Succeed())
+
+			Eventually(func() bool {
+				current := &shophubv1alpha1.Shop{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: shop.Name, Namespace: shop.Namespace}, current); err != nil {
+					return false
+				}
+				return slices.Contains(current.Finalizers, shopFinalizer)
+			}).Should(BeTrue())
+
+			Expect(k8sClient.Delete(ctx, shop)).To(Succeed())
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: shop.Name, Namespace: shop.Namespace}, &shophubv1alpha1.Shop{})
+				return apierrors.IsNotFound(err)
+			}).Should(BeTrue())
+		})
+
+		It("adds REDIS_HOST and REDIS_PASSWORD env vars when DatabaseTier is light", func() {
+			shop := newShop("redb-env-test")
+			shop.Spec.DatabaseTier = shophubv1alpha1.DatabaseLight
+			Expect(k8sClient.Create(ctx, shop)).To(Succeed())
+
+			beKey := types.NamespacedName{Name: resources.BackendName(shop), Namespace: shop.Namespace}
+			Eventually(func() []corev1.EnvVar {
+				dep := &appsv1.Deployment{}
+				if err := k8sClient.Get(ctx, beKey, dep); err != nil {
+					return nil
+				}
+				if len(dep.Spec.Template.Spec.Containers) == 0 {
+					return nil
+				}
+				return dep.Spec.Template.Spec.Containers[0].Env
+			}).Should(HaveLen(2))
+
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, beKey, dep)).To(Succeed())
+			env := dep.Spec.Template.Spec.Containers[0].Env
+
+			Expect(env[0].Name).To(Equal("REDIS_HOST"))
+			Expect(env[0].Value).To(Equal(resources.REDBDatabaseName(shop)))
+			Expect(env[1].Name).To(Equal("REDIS_PASSWORD"))
+			Expect(env[1].ValueFrom.SecretKeyRef.Name).To(Equal(resources.REDBSecretName(shop)))
+
+			Expect(k8sClient.Delete(ctx, shop)).To(Succeed())
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: shop.Name, Namespace: shop.Namespace}, &shophubv1alpha1.Shop{})
+				return apierrors.IsNotFound(err)
+			}).Should(BeTrue())
+		})
+	})
 })

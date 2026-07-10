@@ -73,8 +73,8 @@ func TestBuildBackendDeployment(t *testing.T) {
 	if c.Image != resources.DefaultBackendImage {
 		t.Errorf("image = %q, want %q", c.Image, resources.DefaultBackendImage)
 	}
-	if len(c.EnvFrom) != 2 {
-		t.Errorf("expected 2 EnvFrom (configmap + secret), got %d", len(c.EnvFrom))
+	if len(c.EnvFrom) != 3 {
+		t.Errorf("expected 3 EnvFrom (configmap + secret + cnpg_secret), got %d", len(c.EnvFrom))
 	}
 }
 
@@ -153,11 +153,11 @@ func TestBuildIngressRoutesPathsToCorrectServices(t *testing.T) {
 		t.Fatalf("expected 2 paths, got %d", len(rule.HTTP.Paths))
 	}
 	apiPath := rule.HTTP.Paths[0]
-	if apiPath.Path != "/api" || apiPath.Backend.Service.Name != "demo-be" {
+	if apiPath.Path != "/api(/|$)(.*)" || apiPath.Backend.Service.Name != "demo-be" {
 		t.Errorf("/api should route to demo-be, got path=%q name=%q", apiPath.Path, apiPath.Backend.Service.Name)
 	}
 	rootPath := rule.HTTP.Paths[1]
-	if rootPath.Path != "/" || rootPath.Backend.Service.Name != "demo-fe" {
+	if rootPath.Path != "/()(.*)" || rootPath.Backend.Service.Name != "demo-fe" {
 		t.Errorf("/ should route to demo-fe, got path=%q name=%q", rootPath.Path, rootPath.Backend.Service.Name)
 	}
 }
@@ -183,13 +183,14 @@ func TestBuildConfigMapExposesShopFields(t *testing.T) {
 }
 
 func TestBuildSecretHasPlaceholderKeys(t *testing.T) {
+	t.Setenv("SHARED_JWT_SECRET", "test-secret")
 	s := sampleShop()
 	sec := resources.BuildSecret(s)
 	if sec.Name != "demo-secret" {
 		t.Errorf("Name = %q, want demo-secret", sec.Name)
 	}
 	for _, k := range []string{"JWT_SECRET", "DB_PASSWORD"} {
-		if _, ok := sec.Data[k]; !ok {
+		if _, ok := sec.StringData[k]; !ok {
 			t.Errorf("Secret missing placeholder key %q", k)
 		}
 	}

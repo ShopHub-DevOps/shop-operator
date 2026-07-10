@@ -80,6 +80,25 @@ func (r *ShopReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 				// Cluster is deleted, proceed with finalizer removal
 			}
 
+			//Wait for REDB deletion if light tier
+			if shop.Spec.DatabaseTier == shophubv1alpha1.DatabaseLight {
+				redb := &unstructured.Unstructured{}
+				redb.SetAPIVersion("app.redislabs.com/v1alpha1")
+				redb.SetKind("RedisEnterpriseDatabase")
+				err := r.Get(ctx, types.NamespacedName{
+					Name:      resources.REDBDatabaseName(shop),
+					Namespace: shop.Namespace,
+				}, redb)
+
+				if err == nil {
+					logger.Info("waiting for REDB database to be deleted", "shop", shop.Name)
+					return ctrl.Result{Requeue: true}, nil
+				}
+				if !apierrors.IsNotFound(err) && !strings.Contains(err.Error(), "no matches for kind") {
+					return ctrl.Result{}, fmt.Errorf("check redb database: %w", err)
+				}
+			}
+
 			logger.Info("releasing Shop finalizer", "shop", shop.Name)
 			controllerutil.RemoveFinalizer(shop, shopFinalizer)
 			if err := r.Update(ctx, shop); err != nil {
@@ -100,6 +119,10 @@ func (r *ShopReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	//r.logDatabaseTierStub(ctx, shop)
 	if err := r.reconcileCNPGCluster(ctx, shop); err != nil {
 		return ctrl.Result{}, fmt.Errorf("cnpg cluster: %w", err)
+	}
+
+	if err := r.reconcileREDBDatabase(ctx, shop); err != nil {
+		return ctrl.Result{}, fmt.Errorf("redb database: %w", err)
 	}
 
 	if err := r.reconcileConfigMap(ctx, shop); err != nil {
@@ -339,4 +362,32 @@ func (r *ShopReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		//Owns(&unstructured.Unstructured{}).
 		Named("shop").
 		Complete(r)
+}
+
+func (r *ShopReconciler) reconcileREDBDatabase(ctx context.Context, shop *shophubv1alpha1.Shop) error {
+	if shop.Spec.DatabaseTier != shophubv1alpha1.DatabaseLight {
+		return nil
+	}
+
+	desired := resources.BuildREDBDatabase(shop)
+	current := &unstructured.Unstructured{}
+	current.SetAPIVersion("app.redislabs.com/v1alpha1")
+	current.SetKind("RedisEnterpriseDatabase")
+	current.SetName(desired.GetName())
+	current.SetNamespace(desired.GetNamespace())
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, current, func() error {
+		current.SetLabels(desired.GetLabels())
+		current.Object["spec"] = desired.Object["spec"]
+		return controllerutil.SetControllerReference(shop, current, r.Scheme)
+	})
+
+	// Ignore "no matches for kind" error — REDB operator may not be installed
+	if err != nil && strings.Contains(err.Error(), "no matches for kind") {
+		logger := log.FromContext(ctx)
+		logger.Info("REDB operator not installed, skipping database creation", "shop", shop.Name)
+		return nil
+	}
+
+	return err
 }

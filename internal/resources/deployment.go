@@ -28,6 +28,22 @@ func BuildBackendDeployment(s *shophubv1alpha1.Shop) *appsv1.Deployment {
 				},
 			},
 		})
+	} else if s.Spec.DatabaseTier == shophubv1alpha1.DatabaseLight {
+		// REDB secret provides "password" and "port"
+		extraEnv = append(extraEnv, corev1.EnvVar{
+			Name:  "REDIS_HOST",
+			Value: REDBDatabaseName(s), // Kubernetes DNS routes this service name
+		}, corev1.EnvVar{
+			Name: "REDIS_PASSWORD",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: REDBSecretName(s),
+					},
+					Key: "password",
+				},
+			},
+		})
 	}
 
 	// To backend send "/health" - health check.
@@ -62,7 +78,7 @@ func buildDeployment(s *shophubv1alpha1.Shop, name, component, image, healthPath
 	}
 
 	var initContainers []corev1.Container
-	if component == ComponentBackend {
+	if component == ComponentBackend && s.Spec.DatabaseTier == shophubv1alpha1.DatabaseStandard {
 		initContainers = []corev1.Container{{
 			Name:  "run-migrations",
 			Image: image,
