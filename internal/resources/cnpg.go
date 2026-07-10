@@ -14,23 +14,23 @@ func BuildCNPGCluster(s *shophubv1alpha1.Shop) *unstructured.Unstructured {
 	}
 
 	cluster := &unstructured.Unstructured{
-		Object: map[string]interface{}{
+		Object: map[string]any{
 			"apiVersion": "postgresql.cnpg.io/v1",
 			"kind":       "Cluster",
-			"metadata": map[string]interface{}{
+			"metadata": map[string]any{
 				"name":      CNPGClusterName(s),
 				"namespace": s.Namespace,
 				"labels":    ComponentLabels(s.Name, "database"),
 			},
-			"spec": map[string]interface{}{
+			"spec": map[string]any{
 				"instances": instances,
-				"bootstrap": map[string]interface{}{
-					"initdb": map[string]interface{}{
+				"bootstrap": map[string]any{
+					"initdb": map[string]any{
 						"database": "shop",
 						"owner":    "shop",
 					},
 				},
-				"storage": map[string]interface{}{
+				"storage": map[string]any{
 					"size": "10Gi",
 				},
 			},

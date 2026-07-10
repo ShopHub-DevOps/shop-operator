@@ -9,15 +9,15 @@ import (
 // BuildREDBDatabase composes a RedisEnterpriseDatabase for a Shop.
 func BuildREDBDatabase(s *shophubv1alpha1.Shop) *unstructured.Unstructured {
 	db := &unstructured.Unstructured{
-		Object: map[string]interface{}{
+		Object: map[string]any{
 			"apiVersion": "app.redislabs.com/v1alpha1",
 			"kind":       "RedisEnterpriseDatabase",
-			"metadata": map[string]interface{}{
+			"metadata": map[string]any{
 				"name":      REDBDatabaseName(s),
 				"namespace": s.Namespace,
 				"labels":    ComponentLabels(s.Name, "database"),
 			},
-			"spec": map[string]interface{}{
+			"spec": map[string]any{
 				// Sensible default for a light tier
 				"memoryLimit": "100MB",
 			},

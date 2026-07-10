@@ -29,6 +29,7 @@ func newShop(name string) *shophubv1alpha1.Shop {
 			Availability:  shophubv1alpha1.AvailabilityStandard,
 			DatabaseTier:  shophubv1alpha1.DatabaseStandard,
 			WalletAddress: "0xabcdef1234567890abcdef1234567890abcdef12",
+			OwnerEmail:    "test@shophub.local",
 			ChainID:       11155111,
 		},
 	}
@@ -187,7 +188,6 @@ var _ = Describe("Shop reconciler", func() {
 			// Wait for CNPG Cluster to be created
 			// Note: This will log "CNPG operator not installed" if not available,
 			// but the test doesn't fail because we ignore that error.
-			//clusterName := resources.CNPGClusterName(shop)
 			Eventually(func() bool {
 				// We can't check if cluster exists because CNPG CRD might not be installed.
 				// Instead, verify that the reconciliation completed (finalizer is set)

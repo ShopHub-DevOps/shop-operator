@@ -80,7 +80,7 @@ func (r *ShopReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 				// Cluster is deleted, proceed with finalizer removal
 			}
 
-			//Wait for REDB deletion if light tier
+			// Wait for REDB deletion if light tier
 			if shop.Spec.DatabaseTier == shophubv1alpha1.DatabaseLight {
 				redb := &unstructured.Unstructured{}
 				redb.SetAPIVersion("app.redislabs.com/v1alpha1")
@@ -116,7 +116,7 @@ func (r *ShopReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	//r.logDatabaseTierStub(ctx, shop)
+	// r.logDatabaseTierStub(ctx, shop)
 	if err := r.reconcileCNPGCluster(ctx, shop); err != nil {
 		return ctrl.Result{}, fmt.Errorf("cnpg cluster: %w", err)
 	}
@@ -359,7 +359,7 @@ func (r *ShopReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.ConfigMap{}).
 		Owns(&corev1.Secret{}).
 		Owns(&networkingv1.Ingress{}).
-		//Owns(&unstructured.Unstructured{}).
+		// Owns(&unstructured.Unstructured{}).
 		Named("shop").
 		Complete(r)
 }

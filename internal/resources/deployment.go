@@ -16,7 +16,8 @@ func BuildBackendDeployment(s *shophubv1alpha1.Shop) *appsv1.Deployment {
 	var extraEnv []corev1.EnvVar
 
 	// If standard tier (CNPG), map 'uri' to 'DATABASE_URL' that NestJS expects.
-	if s.Spec.DatabaseTier == shophubv1alpha1.DatabaseStandard {
+	switch s.Spec.DatabaseTier {
+	case shophubv1alpha1.DatabaseStandard:
 		extraEnv = append(extraEnv, corev1.EnvVar{
 			Name: "DATABASE_URL",
 			ValueFrom: &corev1.EnvVarSource{
@@ -28,7 +29,7 @@ func BuildBackendDeployment(s *shophubv1alpha1.Shop) *appsv1.Deployment {
 				},
 			},
 		})
-	} else if s.Spec.DatabaseTier == shophubv1alpha1.DatabaseLight {
+	case shophubv1alpha1.DatabaseLight:
 		// REDB secret provides "password" and "port"
 		extraEnv = append(extraEnv, corev1.EnvVar{
 			Name:  "REDIS_HOST",

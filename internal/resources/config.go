@@ -1,8 +1,6 @@
 package resources
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"os"
 	"strconv"
 
@@ -54,14 +52,4 @@ func BuildSecret(s *shophubv1alpha1.Shop) *corev1.Secret {
 			"DB_PASSWORD": "", // CNPG base uses its own secret for db connection.
 		},
 	}
-}
-
-// generateRandomJWTKey generates random 32byte key - encrypts to Base64.
-func generateRandomJWTKey() string {
-	bytes := make([]byte, 32)
-	if _, err := rand.Read(bytes); err != nil {
-		// fallback if error in rand generator
-		return "fallback-super-secure-key-change-me-in-production"
-	}
-	return base64.StdEncoding.EncodeToString(bytes)
 }
