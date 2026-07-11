@@ -79,6 +79,11 @@ type ShopSpec struct {
 	// +optional
 	ChainID int64 `json:"chainId,omitempty"`
 
+	// OwnerEmail is the email of the user who created this shop in ShopHub.
+	// This user will automatically receive ADMIN privileges in this shop.
+	// +kubebuilder:validation:MinLength=3
+	OwnerEmail string `json:"ownerEmail"`
+
 	// Images optionally pins container image tags for backend and frontend.
 	// +optional
 	Images ShopImages `json:"images,omitempty"`

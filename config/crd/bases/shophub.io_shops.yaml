@@ -110,6 +110,12 @@ spec:
                   Lowercase hex EVM address.
                 pattern: ^0x[a-fA-F0-9]{40}$
                 type: string
+              ownerEmail:
+                description: |-
+                  OwnerEmail is the email of the user who created this shop in ShopHub.
+                  This user will automatically receive ADMIN privileges in this shop.
+                minLength: 3
+                type: string
             required:
             - availability
             - databaseTier

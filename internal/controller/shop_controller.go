@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -11,6 +12,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -39,6 +41,7 @@ type ShopReconciler struct {
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=services;configmaps;secrets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=postgresql.cnpg.io,resources=clusters,verbs=get;list;watch;create;update;patch;delete
 
 func (r *ShopReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
@@ -51,8 +54,51 @@ func (r *ShopReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// Deletion path: child resources are reclaimed by OwnerReference cascade,
 	// so the finalizer hook just logs and yields. External cleanup hooks
 	// (CNPG cluster, REDB instance) will plug in here in shop-operator#10 / #11.
+	// Deletion path: wait for CNPG Cluster to be deleted before removing finalizer
 	if !shop.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(shop, shopFinalizer) {
+			// Wait for CNPG Cluster to be deleted if database tier is standard
+			if shop.Spec.DatabaseTier == shophubv1alpha1.DatabaseStandard {
+				cluster := &unstructured.Unstructured{}
+				cluster.SetAPIVersion("postgresql.cnpg.io/v1")
+				cluster.SetKind("Cluster")
+				err := r.Get(ctx, types.NamespacedName{
+					Name:      resources.CNPGClusterName(shop),
+					Namespace: shop.Namespace,
+				}, cluster)
+
+				if err == nil {
+					// Cluster still exists, wait for it to be deleted
+					logger.Info("waiting for CNPG cluster to be deleted", "shop", shop.Name)
+					return ctrl.Result{Requeue: true}, nil
+				}
+
+				if !apierrors.IsNotFound(err) && !strings.Contains(err.Error(), "no matches for kind") {
+					// Actual error, not just not found
+					return ctrl.Result{}, fmt.Errorf("check cnpg cluster: %w", err)
+				}
+				// Cluster is deleted, proceed with finalizer removal
+			}
+
+			// Wait for REDB deletion if light tier
+			if shop.Spec.DatabaseTier == shophubv1alpha1.DatabaseLight {
+				redb := &unstructured.Unstructured{}
+				redb.SetAPIVersion("app.redislabs.com/v1alpha1")
+				redb.SetKind("RedisEnterpriseDatabase")
+				err := r.Get(ctx, types.NamespacedName{
+					Name:      resources.REDBDatabaseName(shop),
+					Namespace: shop.Namespace,
+				}, redb)
+
+				if err == nil {
+					logger.Info("waiting for REDB database to be deleted", "shop", shop.Name)
+					return ctrl.Result{Requeue: true}, nil
+				}
+				if !apierrors.IsNotFound(err) && !strings.Contains(err.Error(), "no matches for kind") {
+					return ctrl.Result{}, fmt.Errorf("check redb database: %w", err)
+				}
+			}
+
 			logger.Info("releasing Shop finalizer", "shop", shop.Name)
 			controllerutil.RemoveFinalizer(shop, shopFinalizer)
 			if err := r.Update(ctx, shop); err != nil {
@@ -70,7 +116,14 @@ func (r *ShopReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	r.logDatabaseTierStub(ctx, shop)
+	// r.logDatabaseTierStub(ctx, shop)
+	if err := r.reconcileCNPGCluster(ctx, shop); err != nil {
+		return ctrl.Result{}, fmt.Errorf("cnpg cluster: %w", err)
+	}
+
+	if err := r.reconcileREDBDatabase(ctx, shop); err != nil {
+		return ctrl.Result{}, fmt.Errorf("redb database: %w", err)
+	}
 
 	if err := r.reconcileConfigMap(ctx, shop); err != nil {
 		return ctrl.Result{}, fmt.Errorf("configmap: %w", err)
@@ -158,6 +211,7 @@ func (r *ShopReconciler) deploymentReady(ctx context.Context, namespace, name st
 
 // logDatabaseTierStub is a placeholder for the real CNPG / REDB provisioning,
 // tracked in shop-operator#10 (CNPG) and shop-operator#11 (REDB).
+/*
 func (r *ShopReconciler) logDatabaseTierStub(ctx context.Context, shop *shophubv1alpha1.Shop) {
 	logger := log.FromContext(ctx)
 	switch shop.Spec.DatabaseTier {
@@ -166,6 +220,35 @@ func (r *ShopReconciler) logDatabaseTierStub(ctx context.Context, shop *shophubv
 	case shophubv1alpha1.DatabaseLight:
 		logger.V(1).Info("database tier stub: would provision Redis via REDB", "shop", shop.Name)
 	}
+}
+*/
+
+func (r *ShopReconciler) reconcileCNPGCluster(ctx context.Context, shop *shophubv1alpha1.Shop) error {
+	if shop.Spec.DatabaseTier != shophubv1alpha1.DatabaseStandard {
+		return nil
+	}
+
+	desired := resources.BuildCNPGCluster(shop)
+	current := &unstructured.Unstructured{}
+	current.SetAPIVersion("postgresql.cnpg.io/v1")
+	current.SetKind("Cluster")
+	current.SetName(desired.GetName())
+	current.SetNamespace(desired.GetNamespace())
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, current, func() error {
+		current.SetLabels(desired.GetLabels())
+		current.Object["spec"] = desired.Object["spec"]
+		return controllerutil.SetControllerReference(shop, current, r.Scheme)
+	})
+
+	// Ignore "no matches for kind" error — CNPG operator may not be installed
+	if err != nil && strings.Contains(err.Error(), "no matches for kind") {
+		logger := log.FromContext(ctx)
+		logger.Info("CNPG operator not installed, skipping cluster creation", "shop", shop.Name)
+		return nil
+	}
+
+	return err
 }
 
 func (r *ShopReconciler) reconcileConfigMap(ctx context.Context, shop *shophubv1alpha1.Shop) error {
@@ -196,9 +279,9 @@ func (r *ShopReconciler) reconcileSecret(ctx context.Context, shop *shophubv1alp
 		if current.Data == nil {
 			current.Data = map[string][]byte{}
 		}
-		for k, v := range desired.Data {
+		for k, v := range desired.StringData {
 			if _, exists := current.Data[k]; !exists {
-				current.Data[k] = v
+				current.Data[k] = []byte(v)
 			}
 		}
 		return controllerutil.SetControllerReference(shop, current, r.Scheme)
@@ -261,6 +344,7 @@ func (r *ShopReconciler) reconcileIngress(ctx context.Context, shop *shophubv1al
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, current, func() error {
 		current.Labels = desired.Labels
+		current.Annotations = desired.Annotations
 		current.Spec = desired.Spec
 		return controllerutil.SetControllerReference(shop, current, r.Scheme)
 	})
@@ -275,6 +359,35 @@ func (r *ShopReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.ConfigMap{}).
 		Owns(&corev1.Secret{}).
 		Owns(&networkingv1.Ingress{}).
+		// Owns(&unstructured.Unstructured{}).
 		Named("shop").
 		Complete(r)
+}
+
+func (r *ShopReconciler) reconcileREDBDatabase(ctx context.Context, shop *shophubv1alpha1.Shop) error {
+	if shop.Spec.DatabaseTier != shophubv1alpha1.DatabaseLight {
+		return nil
+	}
+
+	desired := resources.BuildREDBDatabase(shop)
+	current := &unstructured.Unstructured{}
+	current.SetAPIVersion("app.redislabs.com/v1alpha1")
+	current.SetKind("RedisEnterpriseDatabase")
+	current.SetName(desired.GetName())
+	current.SetNamespace(desired.GetNamespace())
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, current, func() error {
+		current.SetLabels(desired.GetLabels())
+		current.Object["spec"] = desired.Object["spec"]
+		return controllerutil.SetControllerReference(shop, current, r.Scheme)
+	})
+
+	// Ignore "no matches for kind" error — REDB operator may not be installed
+	if err != nil && strings.Contains(err.Error(), "no matches for kind") {
+		logger := log.FromContext(ctx)
+		logger.Info("REDB operator not installed, skipping database creation", "shop", shop.Name)
+		return nil
+	}
+
+	return err
 }

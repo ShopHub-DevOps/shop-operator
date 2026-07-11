@@ -2,6 +2,8 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -39,6 +41,8 @@ var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
 	ctx, cancel = context.WithCancel(context.Background())
+
+	_ = os.Setenv("SHARED_JWT_SECRET", "dummy-secret-for-tests")
 
 	_, thisFile, _, _ := runtime.Caller(0)
 	repoRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
@@ -91,6 +95,9 @@ var _ = BeforeSuite(func() {
 })
 
 var _ = AfterSuite(func() {
-	cancel()
-	Expect(testEnv.Stop()).To(Succeed())
+	By("tearing down the test environment")
+	err := testEnv.Stop()
+	if err != nil {
+		fmt.Printf("\nWarning: Cannot shut envtest processes (Windows OS expected): %v\n", err)
+	}
 })
