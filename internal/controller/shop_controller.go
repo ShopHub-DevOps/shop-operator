@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -143,6 +144,9 @@ func (r *ShopReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	if err := r.reconcileFrontendService(ctx, shop); err != nil {
 		return ctrl.Result{}, fmt.Errorf("frontend service: %w", err)
 	}
+	if err := r.reconcileServiceMonitor(ctx, shop); err != nil {
+		return ctrl.Result{}, fmt.Errorf("servicemonitor: %w", err)
+	}
 	if err := r.reconcileIngress(ctx, shop); err != nil {
 		return ctrl.Result{}, fmt.Errorf("ingress: %w", err)
 	}
@@ -266,12 +270,23 @@ func (r *ShopReconciler) reconcileConfigMap(ctx context.Context, shop *shophubv1
 }
 
 func (r *ShopReconciler) reconcileSecret(ctx context.Context, shop *shophubv1alpha1.Shop) error {
-	desired := resources.BuildSecret(shop)
+	// Fetch shared JWT secret
+	sharedSecret := &corev1.Secret{}
+	err := r.Get(ctx, types.NamespacedName{Name: "shophub-secrets", Namespace: "default"}, sharedSecret)
+	if err != nil {
+		return fmt.Errorf("failed to get shared secret: %w", err)
+	}
+	jwtSecretBytes, ok := sharedSecret.Data["jwt-secret"]
+	if !ok {
+		return fmt.Errorf("shared secret missing jwt-secret key")
+	}
+
+	desired := resources.BuildSecret(shop, string(jwtSecretBytes))
 	current := &corev1.Secret{}
 	current.Name = desired.Name
 	current.Namespace = desired.Namespace
 
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, current, func() error {
+	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, current, func() error {
 		current.Labels = desired.Labels
 		current.Type = desired.Type
 		// Preserve existing values so we don't clobber secrets populated by
@@ -386,6 +401,59 @@ func (r *ShopReconciler) reconcileREDBDatabase(ctx context.Context, shop *shophu
 	if err != nil && strings.Contains(err.Error(), "no matches for kind") {
 		logger := log.FromContext(ctx)
 		logger.Info("REDB operator not installed, skipping database creation", "shop", shop.Name)
+		return nil
+	}
+
+	return err
+}
+
+func (r *ShopReconciler) reconcileServiceMonitor(ctx context.Context, shop *shophubv1alpha1.Shop) error {
+	sm := &unstructured.Unstructured{}
+	sm.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "monitoring.coreos.com",
+		Version: "v1",
+		Kind:    "ServiceMonitor",
+	})
+	sm.SetName(resources.BackendName(shop) + "-backend")
+	sm.SetNamespace(shop.Namespace)
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, sm, func() error {
+		sm.SetLabels(map[string]string{
+			"app.kubernetes.io/instance":   shop.Name,
+			"app.kubernetes.io/managed-by": "Helm",
+			"app.kubernetes.io/name":       "shop",
+			"app.kubernetes.io/part-of":    "shophub-platform",
+			"release":                      "shophub",
+		})
+
+		err := controllerutil.SetControllerReference(shop, sm, r.Scheme)
+		if err != nil {
+			return err
+		}
+
+		spec := map[string]interface{}{
+			"selector": map[string]interface{}{
+				"matchLabels": map[string]interface{}{
+					"app.kubernetes.io/component": "backend",
+					"app.kubernetes.io/instance":  shop.Name,
+					"app.kubernetes.io/name":      "shop",
+				},
+			},
+			"endpoints": []interface{}{
+				map[string]interface{}{
+					"port": "http",
+					"path": "/metrics",
+				},
+			},
+		}
+		sm.Object["spec"] = spec
+		return nil
+	})
+
+	// Ignore "no matches for kind" error if prometheus operator CRDs are not installed
+	if err != nil && strings.Contains(err.Error(), "no matches for kind") {
+		logger := log.FromContext(ctx)
+		logger.Info("ServiceMonitor CRD not installed, skipping ServiceMonitor creation", "shop", shop.Name)
 		return nil
 	}
 

@@ -100,6 +100,15 @@ func buildDeployment(s *shophubv1alpha1.Shop, name, component, image, healthPath
 		}}
 	}
 
+	// Add the host to the pod template labels so Prometheus can scrape it
+	podLabels := make(map[string]string)
+	for k, v := range labels {
+		podLabels[k] = v
+	}
+	if s.Spec.Host != "" {
+		podLabels["shophub.io/host"] = s.Spec.Host
+	}
+
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -108,9 +117,13 @@ func buildDeployment(s *shophubv1alpha1.Shop, name, component, image, healthPath
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
-			Selector: &metav1.LabelSelector{MatchLabels: labels},
+			Selector: &metav1.LabelSelector{
+				MatchLabels: labels,
+			},
 			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: labels},
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: podLabels,
+				},
 				Spec: corev1.PodSpec{
 					InitContainers: initContainers,
 					Containers: []corev1.Container{{

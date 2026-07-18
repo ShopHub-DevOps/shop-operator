@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -14,6 +13,8 @@ import (
 
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -42,8 +43,6 @@ var _ = BeforeSuite(func() {
 
 	ctx, cancel = context.WithCancel(context.Background())
 
-	_ = os.Setenv("SHARED_JWT_SECRET", "dummy-secret-for-tests")
-
 	_, thisFile, _, _ := runtime.Caller(0)
 	repoRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
 
@@ -61,6 +60,15 @@ var _ = BeforeSuite(func() {
 
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
+
+	defaultNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}}
+	_ = k8sClient.Create(ctx, defaultNs)
+
+	mockSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "shophub-secrets", Namespace: "default"},
+		Data: map[string][]byte{"jwt-secret": []byte("dummy-secret-for-tests")},
+	}
+	Expect(k8sClient.Create(ctx, mockSecret)).To(Succeed())
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme.Scheme,
