@@ -445,6 +445,9 @@ func (r *ShopReconciler) reconcileServiceMonitor(ctx context.Context, shop *shop
 					"path": "/metrics",
 				},
 			},
+			"podTargetLabels": []interface{}{
+				"shophub.io/host",
+			},
 		}
 		sm.Object["spec"] = spec
 		return nil
