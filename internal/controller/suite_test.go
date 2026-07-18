@@ -23,6 +23,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	shophubv1alpha1 "github.com/ShopHub-DevOps/shop-operator/api/v1alpha1"
+	monitoringv1alpha1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1alpha1"
 )
 
 var (
@@ -47,8 +48,8 @@ var _ = BeforeSuite(func() {
 	repoRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
 
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join(repoRoot, "config", "crd", "bases")},
-		ErrorIfCRDPathMissing: true,
+		CRDDirectoryPaths:     []string{filepath.Join(repoRoot, "config", "crd", "bases"), filepath.Join(repoRoot, "config", "crd", "external")},
+		ErrorIfCRDPathMissing: false,
 	}
 
 	var err error
@@ -57,6 +58,7 @@ var _ = BeforeSuite(func() {
 	Expect(cfg).NotTo(BeNil())
 
 	Expect(shophubv1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
+	Expect(monitoringv1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
 
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
