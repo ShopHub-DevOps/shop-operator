@@ -44,6 +44,16 @@ func BuildBackendDeployment(s *shophubv1alpha1.Shop) *appsv1.Deployment {
 					Key: "password",
 				},
 			},
+		}, corev1.EnvVar{
+			Name: "REDIS_PORT",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: REDBSecretName(s),
+					},
+					Key: "port",
+				},
+			},
 		})
 	}
 
