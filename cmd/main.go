@@ -21,6 +21,7 @@ import (
 
 	shophubv1alpha1 "github.com/ShopHub-DevOps/shop-operator/api/v1alpha1"
 	"github.com/ShopHub-DevOps/shop-operator/internal/controller"
+
 	// +kubebuilder:scaffold:imports
 	monitoringv1alpha1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1alpha1"
 )

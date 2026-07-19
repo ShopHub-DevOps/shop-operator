@@ -190,9 +190,10 @@ func (r *DiscordChannelReconciler) reconcileAlertmanagerConfig(ctx context.Conte
 		}
 
 		severityRegex := "warning|critical"
-		if channel.Spec.MinSeverity == shophubv1alpha1.DiscordSeverityInfo {
+		switch channel.Spec.MinSeverity {
+		case shophubv1alpha1.DiscordSeverityInfo:
 			severityRegex = "info|warning|critical"
-		} else if channel.Spec.MinSeverity == shophubv1alpha1.DiscordSeverityCritical {
+		case shophubv1alpha1.DiscordSeverityCritical:
 			severityRegex = "critical"
 		}
 

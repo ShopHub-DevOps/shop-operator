@@ -11,10 +11,10 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/rest"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -68,7 +68,7 @@ var _ = BeforeSuite(func() {
 
 	mockSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "shophub-secrets", Namespace: "default"},
-		Data: map[string][]byte{"jwt-secret": []byte("dummy-secret-for-tests")},
+		Data:       map[string][]byte{"jwt-secret": []byte("dummy-secret-for-tests")},
 	}
 	Expect(k8sClient.Create(ctx, mockSecret)).To(Succeed())
 

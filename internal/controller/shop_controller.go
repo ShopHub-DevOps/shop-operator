@@ -435,16 +435,16 @@ func (r *ShopReconciler) reconcileServiceMonitor(ctx context.Context, shop *shop
 			return err
 		}
 
-		spec := map[string]interface{}{
-			"selector": map[string]interface{}{
-				"matchLabels": map[string]interface{}{
+		spec := map[string]any{
+			"selector": map[string]any{
+				"matchLabels": map[string]any{
 					"app.kubernetes.io/component": "backend",
 					"app.kubernetes.io/instance":  shop.Name,
 					"app.kubernetes.io/name":      "shop",
 				},
 			},
-			"endpoints": []interface{}{
-				map[string]interface{}{
+			"endpoints": []any{
+				map[string]any{
 					"port": "http",
 					"path": "/metrics",
 				},

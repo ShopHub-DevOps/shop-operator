@@ -1,6 +1,8 @@
 package resources
 
 import (
+	"maps"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -102,9 +104,7 @@ func buildDeployment(s *shophubv1alpha1.Shop, name, component, image, healthPath
 
 	// Add the host to the pod template labels so Prometheus can scrape it
 	podLabels := make(map[string]string)
-	for k, v := range labels {
-		podLabels[k] = v
-	}
+	maps.Copy(podLabels, labels)
 	if s.Spec.Host != "" {
 		podLabels["shophub.io/host"] = s.Spec.Host
 	}

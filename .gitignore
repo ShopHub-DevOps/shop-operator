@@ -31,6 +31,5 @@ go.work
 *.kubeconfig
 
 # Temporary and test files
-crd.yaml
-error.log
-config/crd/external/
+/crd.yaml
+/error.log
