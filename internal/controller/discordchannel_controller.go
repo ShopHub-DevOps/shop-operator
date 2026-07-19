@@ -26,9 +26,13 @@ const (
 )
 
 // DiscordChannelReconciler reconciles a DiscordChannel by validating that the
-// referenced webhook Secret is present and well-formed. The actual Alertmanager
-// wiring is provided by helm-charts (PrometheusRule + receiver), so this
-// reconciler is intentionally light: it surfaces secret-existence as status.
+// referenced webhook Secret is present and well-formed, and by generating the
+// AlertmanagerConfig that routes matching alerts to that Discord webhook.
+//
+// The webhook URL is never copied into the CR or into any generated object - the
+// AlertmanagerConfig references the Secret, and Alertmanager itself performs the
+// delivery. Alert rules come from the ShopReconciler (PrometheusRule), and the
+// `tenant` / `severity` labels they carry are what the generated route matches on.
 type DiscordChannelReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
@@ -37,6 +41,7 @@ type DiscordChannelReconciler struct {
 // +kubebuilder:rbac:groups=shophub.io,resources=discordchannels,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=shophub.io,resources=discordchannels/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=shophub.io,resources=discordchannels/finalizers,verbs=update
+// +kubebuilder:rbac:groups=monitoring.coreos.com,resources=alertmanagerconfigs,verbs=get;list;watch;create;update;patch;delete
 
 func (r *DiscordChannelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
@@ -156,6 +161,19 @@ func (r *DiscordChannelReconciler) reconcileAlertmanagerConfig(ctx context.Conte
 		if err := controllerutil.SetControllerReference(channel, amConfig, r.Scheme); err != nil {
 			return err
 		}
+
+		// Alertmanager only merges AlertmanagerConfig objects that match its
+		// alertmanagerConfigSelector. kube-prometheus-stack is deployed with
+		// `alertmanagerConfigSelector: {alertmanagerConfig: shophub}`, so without
+		// this label the generated routing is silently ignored and no alert ever
+		// reaches Discord. Mirrors the `release: shophub` label the ShopReconciler
+		// stamps on ServiceMonitors for the same reason.
+		amConfig.SetLabels(map[string]string{
+			"app.kubernetes.io/instance": channel.Name,
+			"app.kubernetes.io/name":     "discordchannel",
+			"app.kubernetes.io/part-of":  "shophub-platform",
+			"alertmanagerConfig":         "shophub",
+		})
 
 		amConfig.Spec = monitoringv1alpha1.AlertmanagerConfigSpec{
 			Receivers: []monitoringv1alpha1.Receiver{
