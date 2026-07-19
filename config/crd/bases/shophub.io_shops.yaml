@@ -104,23 +104,24 @@ spec:
                   frontend:
                     type: string
                 type: object
-              walletAddress:
-                description: |-
-                  WalletAddress receives crypto payments for this Shop's orders.
-                  Lowercase hex EVM address.
-                pattern: ^0x[a-fA-F0-9]{40}$
-                type: string
               ownerEmail:
                 description: |-
                   OwnerEmail is the email of the user who created this shop in ShopHub.
                   This user will automatically receive ADMIN privileges in this shop.
                 minLength: 3
                 type: string
+              walletAddress:
+                description: |-
+                  WalletAddress receives crypto payments for this Shop's orders.
+                  Lowercase hex EVM address.
+                pattern: ^0x[a-fA-F0-9]{40}$
+                type: string
             required:
             - availability
             - databaseTier
             - displayName
             - host
+            - ownerEmail
             - walletAddress
             type: object
           status:
