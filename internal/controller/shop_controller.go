@@ -449,7 +449,7 @@ func (r *ShopReconciler) reconcileServiceMonitor(ctx context.Context, shop *shop
 					"path": "/metrics",
 				},
 			},
-			"podTargetLabels": []interface{}{
+			"podTargetLabels": []any{
 				"shophub.io/host",
 			},
 		}
@@ -491,63 +491,63 @@ func (r *ShopReconciler) reconcilePrometheusRule(ctx context.Context, shop *shop
 			return err
 		}
 
-		spec := map[string]interface{}{
-			"groups": []interface{}{
-				map[string]interface{}{
+		spec := map[string]any{
+			"groups": []any{
+				map[string]any{
 					"name": shop.Name + ".rules",
-					"rules": []interface{}{
-						map[string]interface{}{
+					"rules": []any{
+						map[string]any{
 							"alert": "HighErrorRate",
 							"expr":  fmt.Sprintf(`sum(rate(shop_http_requests_total{status_code=~"5..", pod=~"%s-.*"}[5m])) / sum(rate(shop_http_requests_total{pod=~"%s-.*"}[5m])) > 0.05`, shop.Name, shop.Name),
 							"for":   "5m",
-							"labels": map[string]interface{}{
+							"labels": map[string]any{
 								"severity":  "critical",
 								"tenant":    shop.Name,
 								"namespace": shop.Namespace,
 							},
-							"annotations": map[string]interface{}{
+							"annotations": map[string]any{
 								"summary":     fmt.Sprintf("Tenant %s has a high error rate", shop.Name),
 								"description": fmt.Sprintf("Error rate for tenant %s has exceeded the threshold.", shop.Name),
 							},
 						},
-						map[string]interface{}{
+						map[string]any{
 							"alert": "HighLatency",
 							"expr":  fmt.Sprintf(`histogram_quantile(0.95, sum(rate(shop_http_request_duration_seconds_bucket{pod=~"%s-.*"}[5m])) by (le)) > 2.0`, shop.Name),
 							"for":   "5m",
-							"labels": map[string]interface{}{
+							"labels": map[string]any{
 								"severity":  "warning",
 								"tenant":    shop.Name,
 								"namespace": shop.Namespace,
 							},
-							"annotations": map[string]interface{}{
+							"annotations": map[string]any{
 								"summary":     fmt.Sprintf("Tenant %s is experiencing high latency", shop.Name),
 								"description": fmt.Sprintf("95th percentile latency for tenant %s is above 2.0s.", shop.Name),
 							},
 						},
-						map[string]interface{}{
+						map[string]any{
 							"alert": "Frequent4xx",
 							"expr":  fmt.Sprintf(`sum(rate(shop_http_requests_total{status_code=~"4..", pod=~"%s-.*"}[5m])) by (route) > 10`, shop.Name),
 							"for":   "5m",
-							"labels": map[string]interface{}{
+							"labels": map[string]any{
 								"severity":  "warning",
 								"tenant":    shop.Name,
 								"namespace": shop.Namespace,
 							},
-							"annotations": map[string]interface{}{
+							"annotations": map[string]any{
 								"summary":     fmt.Sprintf("Frequent 4xx errors on {{ $labels.route }} for %s", shop.Name),
 								"description": fmt.Sprintf("Route {{ $labels.route }} for tenant %s is experiencing a high rate of 4xx errors.", shop.Name),
 							},
 						},
-						map[string]interface{}{
+						map[string]any{
 							"alert": "TenantResourceSaturation",
 							"expr":  fmt.Sprintf(`sum by (pod) (container_memory_usage_bytes{pod=~"%s-.*", container!="POD"}) / sum by (pod) (kube_pod_container_resource_limits{resource="memory", pod=~"%s-.*"}) > 0.85`, shop.Name, shop.Name),
 							"for":   "5m",
-							"labels": map[string]interface{}{
+							"labels": map[string]any{
 								"severity":  "warning",
 								"tenant":    shop.Name,
 								"namespace": shop.Namespace,
 							},
-							"annotations": map[string]interface{}{
+							"annotations": map[string]any{
 								"summary":     "Pod {{ $labels.pod }} Memory saturation",
 								"description": fmt.Sprintf("Pod {{ $labels.pod }} for tenant %s is approaching its memory limit.", shop.Name),
 							},
