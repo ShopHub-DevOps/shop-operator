@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -42,6 +43,7 @@ type ShopReconciler struct {
 // +kubebuilder:rbac:groups=core,resources=services;configmaps;secrets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=postgresql.cnpg.io,resources=clusters,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors;prometheusrules,verbs=get;list;watch;create;update;patch;delete
 
 func (r *ShopReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
@@ -142,6 +144,12 @@ func (r *ShopReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	}
 	if err := r.reconcileFrontendService(ctx, shop); err != nil {
 		return ctrl.Result{}, fmt.Errorf("frontend service: %w", err)
+	}
+	if err := r.reconcileServiceMonitor(ctx, shop); err != nil {
+		return ctrl.Result{}, fmt.Errorf("servicemonitor: %w", err)
+	}
+	if err := r.reconcilePrometheusRule(ctx, shop); err != nil {
+		return ctrl.Result{}, fmt.Errorf("prometheusrule: %w", err)
 	}
 	if err := r.reconcileIngress(ctx, shop); err != nil {
 		return ctrl.Result{}, fmt.Errorf("ingress: %w", err)
@@ -266,12 +274,23 @@ func (r *ShopReconciler) reconcileConfigMap(ctx context.Context, shop *shophubv1
 }
 
 func (r *ShopReconciler) reconcileSecret(ctx context.Context, shop *shophubv1alpha1.Shop) error {
-	desired := resources.BuildSecret(shop)
+	// Fetch shared JWT secret
+	sharedSecret := &corev1.Secret{}
+	err := r.Get(ctx, types.NamespacedName{Name: "shophub-secrets", Namespace: "default"}, sharedSecret)
+	if err != nil {
+		return fmt.Errorf("failed to get shared secret: %w", err)
+	}
+	jwtSecretBytes, ok := sharedSecret.Data["jwt-secret"]
+	if !ok {
+		return fmt.Errorf("shared secret missing jwt-secret key")
+	}
+
+	desired := resources.BuildSecret(shop, string(jwtSecretBytes))
 	current := &corev1.Secret{}
 	current.Name = desired.Name
 	current.Namespace = desired.Namespace
 
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, current, func() error {
+	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, current, func() error {
 		current.Labels = desired.Labels
 		current.Type = desired.Type
 		// Preserve existing values so we don't clobber secrets populated by
@@ -386,6 +405,165 @@ func (r *ShopReconciler) reconcileREDBDatabase(ctx context.Context, shop *shophu
 	if err != nil && strings.Contains(err.Error(), "no matches for kind") {
 		logger := log.FromContext(ctx)
 		logger.Info("REDB operator not installed, skipping database creation", "shop", shop.Name)
+		return nil
+	}
+
+	return err
+}
+
+func (r *ShopReconciler) reconcileServiceMonitor(ctx context.Context, shop *shophubv1alpha1.Shop) error {
+	sm := &unstructured.Unstructured{}
+	sm.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "monitoring.coreos.com",
+		Version: "v1",
+		Kind:    "ServiceMonitor",
+	})
+	sm.SetName(resources.BackendName(shop) + "-backend")
+	sm.SetNamespace(shop.Namespace)
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, sm, func() error {
+		sm.SetLabels(map[string]string{
+			"app.kubernetes.io/instance":   shop.Name,
+			"app.kubernetes.io/managed-by": "Helm",
+			"app.kubernetes.io/name":       "shop",
+			"app.kubernetes.io/part-of":    "shophub-platform",
+			"release":                      "shophub",
+		})
+
+		err := controllerutil.SetControllerReference(shop, sm, r.Scheme)
+		if err != nil {
+			return err
+		}
+
+		spec := map[string]any{
+			"selector": map[string]any{
+				"matchLabels": map[string]any{
+					"app.kubernetes.io/component": "backend",
+					"app.kubernetes.io/instance":  shop.Name,
+					"app.kubernetes.io/name":      "shop",
+				},
+			},
+			"endpoints": []any{
+				map[string]any{
+					"port": "http",
+					"path": "/metrics",
+				},
+			},
+			"podTargetLabels": []any{
+				"shophub.io/host",
+			},
+		}
+		sm.Object["spec"] = spec
+		return nil
+	})
+
+	// Ignore "no matches for kind" error if prometheus operator CRDs are not installed
+	if err != nil && strings.Contains(err.Error(), "no matches for kind") {
+		logger := log.FromContext(ctx)
+		logger.Info("ServiceMonitor CRD not installed, skipping ServiceMonitor creation", "shop", shop.Name)
+		return nil
+	}
+
+	return err
+}
+
+func (r *ShopReconciler) reconcilePrometheusRule(ctx context.Context, shop *shophubv1alpha1.Shop) error {
+	pr := &unstructured.Unstructured{}
+	pr.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "monitoring.coreos.com",
+		Version: "v1",
+		Kind:    "PrometheusRule",
+	})
+	pr.SetName(shop.Name + "-tenant-rules")
+	pr.SetNamespace(shop.Namespace)
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, pr, func() error {
+		pr.SetLabels(map[string]string{
+			"app.kubernetes.io/instance":   shop.Name,
+			"app.kubernetes.io/managed-by": "Helm",
+			"app.kubernetes.io/name":       "shop",
+			"app.kubernetes.io/part-of":    "shophub-platform",
+			"release":                      "shophub",
+		})
+
+		err := controllerutil.SetControllerReference(shop, pr, r.Scheme)
+		if err != nil {
+			return err
+		}
+
+		spec := map[string]any{
+			"groups": []any{
+				map[string]any{
+					"name": shop.Name + ".rules",
+					"rules": []any{
+						map[string]any{
+							"alert": "HighErrorRate",
+							"expr":  fmt.Sprintf(`sum(rate(shop_http_requests_total{status_code=~"5..", pod=~"%s-.*"}[5m])) / sum(rate(shop_http_requests_total{pod=~"%s-.*"}[5m])) > 0.05`, shop.Name, shop.Name),
+							"for":   "5m",
+							"labels": map[string]any{
+								"severity":  "critical",
+								"tenant":    shop.Name,
+								"namespace": shop.Namespace,
+							},
+							"annotations": map[string]any{
+								"summary":     fmt.Sprintf("Tenant %s has a high error rate", shop.Name),
+								"description": fmt.Sprintf("Error rate for tenant %s has exceeded the threshold.", shop.Name),
+							},
+						},
+						map[string]any{
+							"alert": "HighLatency",
+							"expr":  fmt.Sprintf(`histogram_quantile(0.95, sum(rate(shop_http_request_duration_seconds_bucket{pod=~"%s-.*"}[5m])) by (le)) > 2.0`, shop.Name),
+							"for":   "5m",
+							"labels": map[string]any{
+								"severity":  "warning",
+								"tenant":    shop.Name,
+								"namespace": shop.Namespace,
+							},
+							"annotations": map[string]any{
+								"summary":     fmt.Sprintf("Tenant %s is experiencing high latency", shop.Name),
+								"description": fmt.Sprintf("95th percentile latency for tenant %s is above 2.0s.", shop.Name),
+							},
+						},
+						map[string]any{
+							"alert": "Frequent4xx",
+							"expr":  fmt.Sprintf(`sum(rate(shop_http_requests_total{status_code=~"4..", pod=~"%s-.*"}[5m])) by (route) > 10`, shop.Name),
+							"for":   "5m",
+							"labels": map[string]any{
+								"severity":  "warning",
+								"tenant":    shop.Name,
+								"namespace": shop.Namespace,
+							},
+							"annotations": map[string]any{
+								"summary":     fmt.Sprintf("Frequent 4xx errors on {{ $labels.route }} for %s", shop.Name),
+								"description": fmt.Sprintf("Route {{ $labels.route }} for tenant %s is experiencing a high rate of 4xx errors.", shop.Name),
+							},
+						},
+						map[string]any{
+							"alert": "TenantResourceSaturation",
+							"expr":  fmt.Sprintf(`sum by (pod) (container_memory_usage_bytes{pod=~"%s-.*", container!="POD"}) / sum by (pod) (kube_pod_container_resource_limits{resource="memory", pod=~"%s-.*"}) > 0.85`, shop.Name, shop.Name),
+							"for":   "5m",
+							"labels": map[string]any{
+								"severity":  "warning",
+								"tenant":    shop.Name,
+								"namespace": shop.Namespace,
+							},
+							"annotations": map[string]any{
+								"summary":     "Pod {{ $labels.pod }} Memory saturation",
+								"description": fmt.Sprintf("Pod {{ $labels.pod }} for tenant %s is approaching its memory limit.", shop.Name),
+							},
+						},
+					},
+				},
+			},
+		}
+		pr.Object["spec"] = spec
+		return nil
+	})
+
+	// Ignore "no matches for kind" error if prometheus operator CRDs are not installed
+	if err != nil && strings.Contains(err.Error(), "no matches for kind") {
+		logger := log.FromContext(ctx)
+		logger.Info("PrometheusRule CRD not installed, skipping PrometheusRule creation", "shop", shop.Name)
 		return nil
 	}
 

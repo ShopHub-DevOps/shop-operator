@@ -292,7 +292,7 @@ var _ = Describe("Shop reconciler", func() {
 			}).Should(BeTrue())
 		})
 
-		It("adds REDIS_HOST and REDIS_PASSWORD env vars when DatabaseTier is light", func() {
+		It("adds REDIS_HOST, REDIS_PASSWORD, and REDIS_PORT env vars when DatabaseTier is light", func() {
 			shop := newShop("redb-env-test")
 			shop.Spec.DatabaseTier = shophubv1alpha1.DatabaseLight
 			Expect(k8sClient.Create(ctx, shop)).To(Succeed())
@@ -307,7 +307,7 @@ var _ = Describe("Shop reconciler", func() {
 					return nil
 				}
 				return dep.Spec.Template.Spec.Containers[0].Env
-			}).Should(HaveLen(2))
+			}).Should(HaveLen(3))
 
 			dep := &appsv1.Deployment{}
 			Expect(k8sClient.Get(ctx, beKey, dep)).To(Succeed())
@@ -317,6 +317,8 @@ var _ = Describe("Shop reconciler", func() {
 			Expect(env[0].Value).To(Equal(resources.REDBDatabaseName(shop)))
 			Expect(env[1].Name).To(Equal("REDIS_PASSWORD"))
 			Expect(env[1].ValueFrom.SecretKeyRef.Name).To(Equal(resources.REDBSecretName(shop)))
+			Expect(env[2].Name).To(Equal("REDIS_PORT"))
+			Expect(env[2].ValueFrom.SecretKeyRef.Name).To(Equal(resources.REDBSecretName(shop)))
 
 			Expect(k8sClient.Delete(ctx, shop)).To(Succeed())
 			Eventually(func() bool {

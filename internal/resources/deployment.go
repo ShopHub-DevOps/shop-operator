@@ -1,6 +1,8 @@
 package resources
 
 import (
+	"maps"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -42,6 +44,16 @@ func BuildBackendDeployment(s *shophubv1alpha1.Shop) *appsv1.Deployment {
 						Name: REDBSecretName(s),
 					},
 					Key: "password",
+				},
+			},
+		}, corev1.EnvVar{
+			Name: "REDIS_PORT",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: REDBSecretName(s),
+					},
+					Key: "port",
 				},
 			},
 		})
@@ -90,6 +102,13 @@ func buildDeployment(s *shophubv1alpha1.Shop, name, component, image, healthPath
 		}}
 	}
 
+	// Add the host to the pod template labels so Prometheus can scrape it
+	podLabels := make(map[string]string)
+	maps.Copy(podLabels, labels)
+	if s.Spec.Host != "" {
+		podLabels["shophub.io/host"] = s.Spec.Host
+	}
+
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -98,9 +117,13 @@ func buildDeployment(s *shophubv1alpha1.Shop, name, component, image, healthPath
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
-			Selector: &metav1.LabelSelector{MatchLabels: labels},
+			Selector: &metav1.LabelSelector{
+				MatchLabels: labels,
+			},
 			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: labels},
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: podLabels,
+				},
 				Spec: corev1.PodSpec{
 					InitContainers: initContainers,
 					Containers: []corev1.Container{{

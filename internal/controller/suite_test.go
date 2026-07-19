@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -12,6 +11,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -22,6 +23,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	shophubv1alpha1 "github.com/ShopHub-DevOps/shop-operator/api/v1alpha1"
+	monitoringv1alpha1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1alpha1"
 )
 
 var (
@@ -42,14 +44,12 @@ var _ = BeforeSuite(func() {
 
 	ctx, cancel = context.WithCancel(context.Background())
 
-	_ = os.Setenv("SHARED_JWT_SECRET", "dummy-secret-for-tests")
-
 	_, thisFile, _, _ := runtime.Caller(0)
 	repoRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
 
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join(repoRoot, "config", "crd", "bases")},
-		ErrorIfCRDPathMissing: true,
+		CRDDirectoryPaths:     []string{filepath.Join(repoRoot, "config", "crd", "bases"), filepath.Join(repoRoot, "config", "crd", "external")},
+		ErrorIfCRDPathMissing: false,
 	}
 
 	var err error
@@ -58,9 +58,19 @@ var _ = BeforeSuite(func() {
 	Expect(cfg).NotTo(BeNil())
 
 	Expect(shophubv1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
+	Expect(monitoringv1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
 
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
+
+	defaultNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}}
+	_ = k8sClient.Create(ctx, defaultNs)
+
+	mockSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "shophub-secrets", Namespace: "default"},
+		Data:       map[string][]byte{"jwt-secret": []byte("dummy-secret-for-tests")},
+	}
+	Expect(k8sClient.Create(ctx, mockSecret)).To(Succeed())
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme.Scheme,

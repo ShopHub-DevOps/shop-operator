@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	shophubv1alpha1 "github.com/ShopHub-DevOps/shop-operator/api/v1alpha1"
+	monitoringv1alpha1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1alpha1"
 )
 
 const (
@@ -84,6 +85,18 @@ func (r *DiscordChannelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, fmt.Errorf("status: %w", err)
 	}
 
+	if phase == shophubv1alpha1.DiscordChannelPhaseReady {
+		if err := r.reconcileAlertmanagerConfig(ctx, channel, channel.Spec.WebhookSecretRef.Key); err != nil {
+			logger.Error(err, "failed to reconcile AlertmanagerConfig")
+			return ctrl.Result{}, err
+		}
+	} else {
+		if err := r.deleteAlertmanagerConfig(ctx, channel); err != nil {
+			logger.Error(err, "failed to delete AlertmanagerConfig")
+			return ctrl.Result{}, err
+		}
+	}
+
 	logger.V(1).Info("reconciled DiscordChannel", "channel", channel.Spec.ChannelName, "phase", phase)
 	return ctrl.Result{}, nil
 }
@@ -131,9 +144,91 @@ func (r *DiscordChannelReconciler) validateWebhookSecret(ctx context.Context, ch
 		fmt.Sprintf("Secret %q carries a webhook URL under key %q", channel.Spec.WebhookSecretRef.Name, key)
 }
 
+func (r *DiscordChannelReconciler) reconcileAlertmanagerConfig(ctx context.Context, channel *shophubv1alpha1.DiscordChannel, secretKey string) error {
+	amConfig := &monitoringv1alpha1.AlertmanagerConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      channel.Name,
+			Namespace: channel.Namespace,
+		},
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, amConfig, func() error {
+		if err := controllerutil.SetControllerReference(channel, amConfig, r.Scheme); err != nil {
+			return err
+		}
+
+		amConfig.Spec = monitoringv1alpha1.AlertmanagerConfigSpec{
+			Receivers: []monitoringv1alpha1.Receiver{
+				{
+					Name: "discord",
+					DiscordConfigs: []monitoringv1alpha1.DiscordConfig{
+						{
+							APIURL: corev1.SecretKeySelector{
+								LocalObjectReference: corev1.LocalObjectReference{
+									Name: channel.Spec.WebhookSecretRef.Name,
+								},
+								Key: secretKey,
+							},
+						},
+					},
+				},
+			},
+			Route: &monitoringv1alpha1.Route{
+				Receiver: "discord",
+				GroupBy:  []string{"alertname", "job"},
+			},
+		}
+
+		var matchers []monitoringv1alpha1.Matcher
+
+		if channel.Spec.ShopRef != "" {
+			matchers = append(matchers, monitoringv1alpha1.Matcher{
+				Name:      "tenant",
+				Value:     channel.Spec.ShopRef,
+				MatchType: monitoringv1alpha1.MatchType("="),
+			})
+		}
+
+		severityRegex := "warning|critical"
+		switch channel.Spec.MinSeverity {
+		case shophubv1alpha1.DiscordSeverityInfo:
+			severityRegex = "info|warning|critical"
+		case shophubv1alpha1.DiscordSeverityCritical:
+			severityRegex = "critical"
+		}
+
+		matchers = append(matchers, monitoringv1alpha1.Matcher{
+			Name:      "severity",
+			Value:     severityRegex,
+			MatchType: monitoringv1alpha1.MatchType("=~"),
+		})
+
+		amConfig.Spec.Route.Matchers = matchers
+
+		return nil
+	})
+
+	return err
+}
+
+func (r *DiscordChannelReconciler) deleteAlertmanagerConfig(ctx context.Context, channel *shophubv1alpha1.DiscordChannel) error {
+	amConfig := &monitoringv1alpha1.AlertmanagerConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      channel.Name,
+			Namespace: channel.Namespace,
+		},
+	}
+	err := r.Delete(ctx, amConfig)
+	if client.IgnoreNotFound(err) != nil {
+		return err
+	}
+	return nil
+}
+
 func (r *DiscordChannelReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&shophubv1alpha1.DiscordChannel{}).
+		Owns(&monitoringv1alpha1.AlertmanagerConfig{}).
 		Named("discordchannel").
 		Complete(r)
 }

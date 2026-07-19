@@ -185,7 +185,7 @@ func TestBuildConfigMapExposesShopFields(t *testing.T) {
 func TestBuildSecretHasPlaceholderKeys(t *testing.T) {
 	t.Setenv("SHARED_JWT_SECRET", "test-secret")
 	s := sampleShop()
-	sec := resources.BuildSecret(s)
+	sec := resources.BuildSecret(s, "test-secret")
 	if sec.Name != "demo-secret" {
 		t.Errorf("Name = %q, want demo-secret", sec.Name)
 	}
